@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+
+# Function to check if a command exists
+check_command() {
+  if ! command -v "$1" &> /dev/null; then
+    echo "Error: $1 is not installed or not in PATH" >&2
+    exit 1
+  fi
+}
+
+# Function to print help text
+print_help() {
+  cat << EOF
+Usage:
+  html2md                   Print this help message
+  html2md -h, --help        Print this help message
+  html2md <selector>        Process HTML from stdin using the given CSS selector
+  html2md --u <file> <selector>
+  html2md --urls=<file> <selector>
+                            Process URLs from <file>, one per line
+
+Description:
+  Convert HTML to Markdown using CSS selectors (via pup) and pandoc.
+  For the <selector> syntax, see: https://github.com/ericchiang/pup
+
+Dependencies:
+  curl, pup, perl, pandoc
+EOF
+}
+
+# Function to convert HTML to Markdown
+html_to_md() {
+  local selector="$1"
+  pup "$selector" | perl -CSAD -0777 -pe 's/\xc2\xad//g; s/<a[^>]*>\s*<\/a>//g' | pandoc --from html --to gfm+bracketed_spans+definition_lists+fancy_lists+implicit_figures+smart+subscript+superscript --wrap=none
+}
+
+# Function to create a safe filename from a URL
+url_to_filename() {
+  local url="$1"
+  # Remove protocol, replace special chars, limit length
+  echo "$url" | sed -e 's|^https\?://||' -e 's|[^a-zA-Z0-9._-]|_|g' | cut -c1-100
+}
+
+# Function to process a single URL
+process_url() {
+  local url="$1"
+  local selector="$2"
+  
+  # Create a filename from the URL
+  local base_filename=$(url_to_filename "$url")
+  local filename="${base_filename}.md"
+  
+  echo "Processing $url -> $filename" >&2
+  
+  # Download URL, process it, and save to file
+  if ! curl -s "$url" | html_to_md "$selector" > "$filename"; then
+    echo "Error processing $url" >&2
+    return 1
+  fi
+}
+
+# Check required commands
+check_command "curl"
+check_command "pup"
+check_command "perl"
+check_command "pandoc"
+
+# Default values
+url_file=""
+selector=""
+
+# If no arguments provided, show help
+if [ $# -eq 0 ]; then
+  print_help
+  exit 0
+fi
+
+# Process command line options
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      print_help
+      exit 0
+      ;;
+    --u|--urls)
+      url_file="$2"
+      shift 2
+      ;;
+    --urls=*)
+      url_file="${1#*=}"
+      shift
+      ;;
+    *)
+      # Assume this is the selector
+      selector="$1"
+      shift
+      ;;
+  esac
+done
+
+# Check if we have a selector
+if [ -z "$selector" ]; then
+  echo "Error: No selector provided" >&2
+  print_help
+  exit 1
+fi
+
+# Process based on mode
+if [ -n "$url_file" ]; then
+  # URL file mode
+  if [ ! -f "$url_file" ]; then
+    echo "Error: URL file '$url_file' does not exist" >&2
+    exit 1
+  fi
+  
+  # Process each URL
+  while IFS= read -r url || [ -n "$url" ]; do
+    # Skip empty lines and commented lines
+    if [ -z "$url" ] || [[ "$url" =~ ^[[:space:]]*# ]]; then
+      continue
+    fi
+    
+    process_url "$url" "$selector" || true  # Continue even if there's an error
+  done < "$url_file"
+else
+  # Stdin mode
+  html_to_md "$selector"
+fi
