@@ -15,7 +15,7 @@ Usage:
   html2md                   Print this help message
   html2md -h, --help        Print this help message
   html2md <selector>        Process HTML from stdin using the given CSS selector
-  html2md --u <file> <selector>
+  html2md -u <file> <selector>
   html2md --urls=<file> <selector>
                             Process URLs from <file>, one per line
 
@@ -31,7 +31,7 @@ EOF
 # Function to convert HTML to Markdown
 html_to_md() {
   local selector="$1"
-  pup "$selector" | perl -CSAD -0777 -pe 's/\xc2\xad//g; s/<a[^>]*>\s*<\/a>//g' | pandoc --from html --to gfm+bracketed_spans+definition_lists+fancy_lists+implicit_figures+smart+subscript+superscript --wrap=none
+  pup "$selector" | perl -CSAD -0777 -pe 's/\xc2\xad//g; s/<a[^>]*>\s*<\/a>//g' | pandoc --from html --to gfm-raw_html+bracketed_spans+definition_lists+fancy_lists+implicit_figures+smart+subscript+superscript --wrap=none
 }
 
 # Function to create a safe filename from a URL
@@ -53,7 +53,8 @@ process_url() {
   echo "Processing $url -> $filename" >&2
   
   # Download URL, process it, and save to file
-  if ! curl -s "$url" | html_to_md "$selector" > "$filename"; then
+  echo "  Hämtar och bearbetar $url" >&2
+  if ! curl -s --max-time 30 "$url" | html_to_md "$selector" > "$filename"; then
     echo "Error processing $url" >&2
     return 1
   fi
@@ -82,7 +83,7 @@ while [[ $# -gt 0 ]]; do
       print_help
       exit 0
       ;;
-    --u|--urls)
+    -u)
       url_file="$2"
       shift 2
       ;;
@@ -91,6 +92,13 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     *)
+      # Check if this looks like an option
+      if [[ "$1" == -* ]]; then
+        echo "Error: Unknown option '$1'" >&2
+        print_help
+        exit 1
+      fi
+      
       # Assume this is the selector
       selector="$1"
       shift
@@ -114,6 +122,8 @@ if [ -n "$url_file" ]; then
   fi
   
   # Process each URL
+  echo "Börjar bearbeta $(grep -c -v '^\s*$\|^\s*#' "$url_file") URL:er från $url_file" >&2
+  
   while IFS= read -r url || [ -n "$url" ]; do
     # Skip empty lines and commented lines
     if [ -z "$url" ] || [[ "$url" =~ ^[[:space:]]*# ]]; then
@@ -122,6 +132,8 @@ if [ -n "$url_file" ]; then
     
     process_url "$url" "$selector" || true  # Continue even if there's an error
   done < "$url_file"
+  
+  echo "Bearbetning av URL:er slutförd" >&2
 else
   # Stdin mode
   html_to_md "$selector"
