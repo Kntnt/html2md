@@ -53,7 +53,7 @@ process_url() {
   echo "Processing $url -> $filename" >&2
   
   # Download URL, process it, and save to file
-  echo "  Hämtar och bearbetar $url" >&2
+  echo "  Fetching and processing $url" >&2
   if ! curl -s --max-time 30 "$url" | html_to_md "$selector" > "$filename"; then
     echo "Error processing $url" >&2
     return 1
@@ -122,7 +122,7 @@ if [ -n "$url_file" ]; then
   fi
   
   # Process each URL
-  echo "Börjar bearbeta $(grep -c -v '^\s*$\|^\s*#' "$url_file") URL:er från $url_file" >&2
+  echo "Starting to process $(grep -c -v '^\s*$\|^\s*#' "$url_file") URLs from $url_file" >&2
   
   while IFS= read -r url || [ -n "$url" ]; do
     # Skip empty lines and commented lines
@@ -133,7 +133,7 @@ if [ -n "$url_file" ]; then
     process_url "$url" "$selector" || true  # Continue even if there's an error
   done < "$url_file"
   
-  echo "Bearbetning av URL:er slutförd" >&2
+  echo "Processing of URLs completed" >&2
 else
   # Stdin mode
   html_to_md "$selector"
